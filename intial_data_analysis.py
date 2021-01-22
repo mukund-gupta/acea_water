@@ -203,4 +203,58 @@ plt.show()
 # plt.show()
 
 
+"""
+Add time lag?
+Smoothing for deeper groundwater?
+"""
+
+def find_tau_correlation(rain_ts, target_ts, tau_array=None):
+    """Calculate convolution of rainfall data with an exponential window
+    with time constant tau, for a range of values of tau.
+    Then determine how correlated these convolved signals are to the
+    target data by calculating Spearman's rank correlation coefficient
+    for each value of tau"""
+    if tau_array is None:
+        tau_array = np.linspace(1, 100, 100)
+    rain_ts = np.asarray(rain_ts)
+    target_ts = np.asarray(target_ts)
+    winlength = rain_ts.size
+    target_len = target_ts.size
+    t = np.linspace(0, winlength-1, winlength)
+    src = np.empty(len(tau_array))
+    for n in range(len(tau_array)):
+        exp_win = np.exp(-t/tau_array[n])
+        rain_conv = np.convolve(rain_ts, exp_win, 'full')[:target_len]
+        rain_conv = rain_conv / np.sum(exp_win)
+        # if n==40:
+        #     plt.figure()
+        #     plt.plot(rain_ts, label='rain_ts')
+        #     plt.plot(rain_conv, label='rain_conv')
+        #     plt.plot(target_ts, label='target_ts')
+        #     plt.legend()
+        #     plt.show()
+        src[n], _ = stats.spearmanr(target_ts, rain_conv)
+    return src, tau_array
+
+
+
+# Calculate and plot correlation of convolved rainfall signal with the
+# target signal for different time constants of exponential window
+target_ind = 4
+plt.figure()
+for n in range(len(rain_name)):
+    src, tau_array = find_tau_correlation(
+                            normalise_0_to_1(rain_ts[n]),
+                            normalise_0_to_1(all_target_ts[target_ind]),
+                            tau_array=None)
+    plt.plot(tau_array, src, label=rain_name[n])   
+plt.xlabel("tau for exponential window")
+plt.ylabel("Spearman's Rank Coefficient")
+title_text = 'Correlation with target ' + all_target_name[target_ind] + \
+             ' for different rainfall data'
+plt.title(title_text)
+plt.legend()
+plt.show()
+
+
 
