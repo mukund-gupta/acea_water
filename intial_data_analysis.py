@@ -80,13 +80,34 @@ def normalise_0_to_1(signal):
     return sig_norm
 
 
+def find_datatypes(df):
+    names = df.columns
+    datatypes = ['Rainfall',
+                 'Depth_to_Groundwater',
+                 'Temperature',
+                 'Volume',
+                 'Hydrometry',
+                 'Flow_rate',
+                 'Lake_level']
+    col_inds = []
+    for n in range(len(datatypes)):
+        col_ind_type = []
+        for c in range(len(names)):
+            if datatypes[n] in names[c]:
+                col_ind_type.append(c)
+        col_inds.append(col_ind_type)
+    return datatypes, col_inds
+
+datatypes, col_inds = find_datatypes(df)
+
+
 # Get time series data for target variable and some other variables
 # Specified by column index of the pandas dataframe
 col_ind_target = 13
-col_targets = [11, 12, 13, 14, 15]
+col_targets = col_inds[1]
 col_ind_others = [1, 15, 16]
-col_rain = np.linspace(1, 10, 10).astype(np.int)
-col_vol = np.linspace(20, 24, 5).astype(np.int)
+col_rain = col_inds[0]
+col_vol = col_inds[3]
 # Get target time series data
 target_ts, target_name = preprocess_int(df, col_ind_target)
 target_length = target_ts.size
@@ -134,7 +155,7 @@ def plot_data_preprocessed(df, col_ind):
     plt.scatter(time_array2, data_ts_int, s=0.2, alpha=0.6)
     plt.show()
     
-plot_data_preprocessed(df, col_ind_target) 
+# plot_data_preprocessed(df, col_ind_target) 
     
 """
 # Calculate spearmans rank correlation for different lags
@@ -205,21 +226,21 @@ plt.show()
 """
 
 
-plt.figure()
-vol_total = normalise_0_to_1(np.sum(vol_ts, 0))
-vol_total_deviation = vol_total - np.convolve(vol_total, np.ones(500), 'same') / 500
-vol_dev_smooth = np.convolve(vol_total_deviation, np.ones(10), 'same') / 10
-target_total = np.sum(all_target_ts, 0)
-# plt.plot(vol_total, label='total vol', lw=1, alpha=0.7)
-# plt.plot(vol_total_deviation, label='vol deviation', lw=1, alpha=0.7)
-plt.plot(normalise_0_to_1(vol_dev_smooth), label='vol dev smooth', lw=1, alpha=0.7)
-plt.plot(normalise_0_to_1(exp_model), label='exp model', lw=1, alpha=0.7)
-plt.plot(normalise_0_to_1(target_total[:-40]), label='total groundwater', lw=1, alpha=0.7)
-plt.legend()
-plt.title('Time series')
-plt.show()
-# cc = ccf(target_ts, other_ts)
-# cc_lag = ccf(target_ts, other_ts_lag)
+# plt.figure()
+# vol_total = normalise_0_to_1(np.sum(vol_ts, 0))
+# vol_total_deviation = vol_total - np.convolve(vol_total, np.ones(500), 'same') / 500
+# vol_dev_smooth = np.convolve(vol_total_deviation, np.ones(10), 'same') / 10
+# target_total = np.sum(all_target_ts, 0)
+# # plt.plot(vol_total, label='total vol', lw=1, alpha=0.7)
+# # plt.plot(vol_total_deviation, label='vol deviation', lw=1, alpha=0.7)
+# plt.plot(normalise_0_to_1(vol_dev_smooth), label='vol dev smooth', lw=1, alpha=0.7)
+# plt.plot(normalise_0_to_1(exp_model), label='exp model', lw=1, alpha=0.7)
+# plt.plot(normalise_0_to_1(target_total[:-40]), label='total groundwater', lw=1, alpha=0.7)
+# plt.legend()
+# plt.title('Time series')
+# plt.show()
+# # cc = ccf(target_ts, other_ts)
+# # cc_lag = ccf(target_ts, other_ts_lag)
 
 # plt.figure()
 # plt.plot(target_ts, label=target_name)
@@ -266,23 +287,142 @@ def find_tau_correlation(rain_ts, target_ts, tau_array=None):
 
 
 
-# Calculate and plot correlation of convolved rainfall signal with the
-# target signal for different time constants of exponential window
-target_ind = 4
+# # Calculate and plot correlation of convolved rainfall signal with the
+# # target signal for different time constants of exponential window
+# target_ind = 4
+# plt.figure()
+# for n in range(len(rain_name)):
+#     src, tau_array = find_tau_correlation(
+#                             normalise_0_to_1(rain_ts[n]),
+#                             normalise_0_to_1(all_target_ts[target_ind]),
+#                             tau_array=None)
+#     plt.plot(tau_array, src, label=rain_name[n])   
+# plt.xlabel("tau for exponential window")
+# plt.ylabel("Spearman's Rank Coefficient")
+# title_text = 'Correlation with target ' + all_target_name[target_ind] + \
+#              ' for different rainfall data'
+# plt.title(title_text)
+# plt.legend()
+# plt.show()
+
+
+# LSTM
+import numpy
+import math
+from keras.models import Sequential
+from keras.layers import Dense
+from keras.layers import LSTM
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.metrics import mean_squared_error
+
+# convert an array of values into a dataset matrix
+def create_dataset(dataset, look_back=1, chunk_step=1):
+    dataX, dataY, y_ind = [], [], []
+    numchunk = int(np.floor((len(dataset)-look_back-1) / chunk_step))
+    for i in range(numchunk):
+        start_ind = chunk_step*i
+        a = dataset[start_ind:(start_ind+look_back), :]
+        dataX.append(a)
+        dataY.append(dataset[start_ind + look_back, 0])
+        y_ind.append(start_ind + look_back)
+    rand_indices = np.random.permutation(numchunk)
+    x = numpy.array(dataX)
+    y = numpy.array(dataY)
+    y_ind = numpy.array(y_ind)
+    x = x[rand_indices, :].transpose(0, 2, 1)
+    y = y[rand_indices]
+    y = np.reshape(y, (y.size, 1))
+    y_ind = y_ind[rand_indices]
+    return x, y, y_ind
+
+# fix random seed for reproducibility
+numpy.random.seed(7)
+# load the dataset
+dataset = all_target_ts[0]
+# normalize the dataset
+dataset = np.reshape(dataset, (dataset.size, 1))
+scaler = MinMaxScaler(feature_range=(0, 1))
+dataset_scaled = scaler.fit_transform(dataset)
+
+# Split into chunks with random order
+look_back = 30
+chunk_step = 100
+x, y, y_ind = create_dataset(dataset_scaled, look_back=look_back,
+                             chunk_step=chunk_step)
+numchunk = y.shape[0]
+
+# split into train and test sets
+train_size = int(numchunk * 0.67)
+test_size = numchunk - train_size
+trainX, testX = x[0:train_size,:], x[train_size:numchunk,:]
+trainY, testY = y[0:train_size,:], y[train_size:numchunk,:]
+trainYind, testYind = y_ind[0:train_size], y_ind[train_size:numchunk]
+
+# Plot one example of chunk
+sample_num = 10
 plt.figure()
-for n in range(len(rain_name)):
-    src, tau_array = find_tau_correlation(
-                            normalise_0_to_1(rain_ts[n]),
-                            normalise_0_to_1(all_target_ts[target_ind]),
-                            tau_array=None)
-    plt.plot(tau_array, src, label=rain_name[n])   
-plt.xlabel("tau for exponential window")
-plt.ylabel("Spearman's Rank Coefficient")
-title_text = 'Correlation with target ' + all_target_name[target_ind] + \
-             ' for different rainfall data'
-plt.title(title_text)
-plt.legend()
+plt.plot(np.arange(look_back), trainX[sample_num, 0, :])
+plt.plot([look_back], trainY[sample_num, 0], 'xr')
+plt.title("Example of one chunk from dataset")
 plt.show()
+
+# create and fit the LSTM network
+num_features = 1
+model = Sequential()
+model.add(LSTM(4, input_shape=(num_features, look_back)))
+model.add(Dense(1))
+model.compile(loss='mean_squared_error', optimizer='adam')
+model.fit(trainX, trainY, epochs=10, batch_size=5, verbose=1)
+
+# make predictions
+trainPredict = model.predict(trainX)
+testPredict = model.predict(testX)
+
+# invert predictions
+trainPredict = scaler.inverse_transform(trainPredict)
+trainY = scaler.inverse_transform(trainY)
+testPredict = scaler.inverse_transform(testPredict)
+testY = scaler.inverse_transform(testY)
+
+# calculate root mean squared error
+trainScore = math.sqrt(mean_squared_error(trainY[:, 0], trainPredict[:,0]))
+print('Train Score: %.2f RMSE' % (trainScore))
+testScore = math.sqrt(mean_squared_error(testY[:, 0], testPredict[:,0]))
+print('Test Score: %.2f RMSE' % (testScore))
+
+# Plot one prediction example from test sample
+pred_sample = 4
+pred_ind = testYind[pred_sample]
+plt.figure()
+sample_t = np.linspace(pred_ind - look_back - 1, pred_ind - 1, look_back)
+sample_t = sample_t.astype(np.int)
+plt.plot(sample_t, dataset[sample_t[0]:sample_t[-1], 0])
+plt.plot(pred_ind, testPredict[pred_sample, 0], 'xr')
+plt.title("Example of one prediction from test data")
+plt.show()
+
+# Plot all predictions from test samples against original data
+plt.figure()
+plt.plot(np.linspace(0, dataset.size-1, dataset.size), dataset, label='dataset')
+plt.plot(testYind, testPredict[:, 0], 'xr', label='Test predictions')
+plt.plot(trainYind, trainPredict[:, 0], 'xg', label='Train predictions')
+plt.legend()
+plt.title("Predictions compared to original dataset")
+plt.show()
+
+# # shift train predictions for plotting
+# trainPredictPlot = numpy.empty_like(dataset)
+# trainPredictPlot[:, :] = numpy.nan
+# trainPredictPlot[look_back:len(trainPredict)+look_back, :] = trainPredict
+# # shift test predictions for plotting
+# testPredictPlot = numpy.empty_like(dataset)
+# testPredictPlot[:, :] = numpy.nan
+# testPredictPlot[len(trainPredict)+(look_back*2)+1:len(dataset)-1, :] = testPredict
+# # plot baseline and predictions
+# plt.plot(scaler.inverse_transform(dataset))
+# plt.plot(trainPredictPlot)
+# plt.plot(testPredictPlot)
+# plt.show()
 
 
 

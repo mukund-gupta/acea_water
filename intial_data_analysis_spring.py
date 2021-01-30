@@ -143,6 +143,38 @@ def movingav(signal, winwidth, winfunc=None):
 
     return sig_smooth
 
+    
+def plot_data_preprocessed(df, col_ind):
+    data_ts, data_name = preprocess(df, col_ind)
+    data_ts_int, _ = preprocess_int(df, col_ind)
+    data_ts_size = data_ts.size
+    time_array = np.linspace(0, data_ts_size-1, data_ts_size)
+    plt.figure()
+    plt.plot(data_ts_int, alpha=0.8, zorder=1)
+    plt.scatter(time_array, data_ts, s=5, color=[1, 0.8, 0.2, 1], zorder=2)
+    plt.title(data_name)
+    plt.show()
+
+
+def find_datatypes(df):
+    names = df.columns
+    datatypes = ['Rainfall',
+                 'Depth_to_Groundwater',
+                 'Temperature',
+                 'Volume',
+                 'Hydrometry',
+                 'Flow_rate',
+                 'Lake_level']
+    col_inds = []
+    for n in range(len(datatypes)):
+        col_ind_type = []
+        for c in range(len(names)):
+            if datatypes[n] in names[c]:
+                col_ind_type.append(c)
+        col_inds.append(col_ind_type)
+    return datatypes, col_inds
+
+datatypes, col_inds = find_datatypes(df)
 
 # Get time series data for target variable and some other variables
 # Specified by column index of the pandas dataframe
@@ -151,54 +183,6 @@ col_targets = [11, 12, 13, 14, 15]
 col_ind_others = [1, 15, 16]
 col_rain = np.linspace(1, 10, 10).astype(np.int)
 col_vol = np.linspace(20, 24, 5).astype(np.int)
-# Get target time series data
-
-# target_ts, target_name = preprocess_int(df, col_ind_target)
-# target_length = target_ts.size
-# # Get time series data for other variables
-# other_ts = []
-# other_ts_int = []
-# other_name = []
-# for n in range(len(col_ind_others)):
-#     ts_, name_ = preprocess(df, col_ind_others[n])
-#     ts_int_, name_ = preprocess_int(df, col_ind_others[n])
-#     other_ts.append(ts_)
-#     other_ts_int.append(ts_int_)
-#     other_name.append(name_)
-# # Get time series data for all targets
-# all_target_ts = []
-# all_target_name = []
-# for n in range(len(col_targets)):
-#     ts_, name_ = preprocess_int(df, col_targets[n])
-#     all_target_ts.append(ts_)
-#     all_target_name.append(name_)
-# # Get time series data for all rain variables
-# rain_ts = []
-# rain_name = []
-# for n in range(len(col_rain)):
-#     ts_, name_ = preprocess_int(df, col_rain[n])
-#     rain_ts.append(ts_)
-#     rain_name.append(name_)
-# # Get time series data for all volume variables
-# vol_ts = []
-# vol_name = []
-# for n in range(len(col_vol)):
-#     ts_, name_ = preprocess_int(df, col_vol[n])
-#     vol_ts.append(ts_)
-#     vol_name.append(name_)
-    
-def plot_data_preprocessed(df, col_ind):
-    data_ts, data_name = preprocess(df, col_ind)
-    data_ts_int, _ = preprocess_int(df, col_ind)
-    data_ts_size = data_ts.size
-    data_ts_int_size = data_ts_int.size
-    time_array = np.linspace(0, data_ts_size-1, data_ts_size)
-    time_array2 = np.linspace(0, data_ts_int_size-1, data_ts_int_size)
-    plt.figure()
-    plt.plot(data_ts_int, alpha=0.8, zorder=1)
-    plt.scatter(time_array, data_ts, s=5, color=[1, 0.8, 0.2, 1], zorder=2)
-    plt.title(data_name)
-    plt.show()
     
 # plot_data_preprocessed(df, col_ind_target) 
     
@@ -308,154 +292,4 @@ for n in range(len(col_flow)):
 plt.legend()
 plt.title('Flow rates normalised')
 plt.show()
-
-
-# """
-# # Calculate spearmans rank correlation for different lags
-# # Note that the target data is appended to the list of other variables so
-# # it is included in the analysis (effectively an autocorrelation)
-# all_ts = [target_ts] + other_ts
-# all_names = [target_name] + other_name
-# num_datasets = len(all_ts)
-# # loop through all datasets to calculate n-lag spearmans rank coefficients
-# ccl = np.empty((num_datasets, target_length-1))
-# for n in range(num_datasets):
-#     ccl[n, :] = cross_corr_lag(target_ts, all_ts[n])
-# lags = np.linspace(0, ccl.shape[1]-1, ccl.shape[1])
-
-# # Plot results
-# plt.figure()
-# # fig, axes = plt.subplots(num_datasets, 1, sharex=True, sharey=True)
-# for n in range(num_datasets):
-#     plt.plot(ccl[n], label=all_names[n], lw=1, alpha=0.7)
-#     # axes[n].set_ylim([-1, 1])
-# plt.legend()
-# plot_title = 'Correlation lag-N: ' + target_name
-# plt.title(plot_title)
-# plt.xlabel('')
-# plt.show()
-# # plt.figure()
-# # plt.plot(target_ts, label=target_name, lw=1, alpha=0.7)
-# # plt.title('Time series')
-# # plt.show()
-# winlength = target_length
-# tau = 20
-# t = np.linspace(0, winlength-1, winlength)
-# exp_window = np.exp(-t/tau)
-# exp_model = np.convolve(other_ts[0], exp_window, 'full')
-# exp_model_av = np.convolve(moving_average(other_ts[0], 7),
-#                         exp_window, 'full')
-
-# """
-# plt.figure()
-# for n in range(len(col_targets)):
-#     plt.plot(normalise_0_to_1(all_target_ts[n]), label=all_target_name[n], lw=1, alpha=0.7)
-# # plt.plot(other_ts[0], label=other_name[0], lw=1, alpha=0.7)
-# # plt.plot(moving_average(other_ts[0], 30), label='Mov av, win=30', lw=1, alpha=0.7)
-# plt.plot(normalise_0_to_1(exp_model), label='exp model', lw=1, alpha=0.7)
-# # plt.plot(normalise_0_to_1(exp_model_av), label='exp model av', lw=1, alpha=0.7)
-# # plt.plot(moving_average(other_ts[0], 90), label='Mov av, win=90', lw=1, alpha=0.7)
-# plt.legend()
-# plt.title('Time series')
-# plt.show()
-
-
-# plt.figure()
-# for n in range(len(col_rain)):
-#     plt.plot(rain_ts[n], label=rain_name[n], lw=1, alpha=0.7)
-# plt.legend()
-# plt.title('Time series')
-# plt.show()
-
-
-# plt.figure()
-# for n in range(len(col_vol)):
-#     plt.plot(normalise_0_to_1(vol_ts[n]), label=vol_name[n], lw=1, alpha=0.7)
-# plt.plot(normalise_0_to_1(all_target_ts[0]), label=all_target_name[0], lw=1, alpha=0.7)
-# plt.legend()
-# plt.title('Time series')
-# plt.show()
-# """
-
-
-# plt.figure()
-# vol_total = normalise_0_to_1(np.sum(vol_ts, 0))
-# vol_total_deviation = vol_total - np.convolve(vol_total, np.ones(500), 'same') / 500
-# vol_dev_smooth = np.convolve(vol_total_deviation, np.ones(10), 'same') / 10
-# target_total = np.sum(all_target_ts, 0)
-# # plt.plot(vol_total, label='total vol', lw=1, alpha=0.7)
-# # plt.plot(vol_total_deviation, label='vol deviation', lw=1, alpha=0.7)
-# plt.plot(normalise_0_to_1(vol_dev_smooth), label='vol dev smooth', lw=1, alpha=0.7)
-# plt.plot(normalise_0_to_1(exp_model), label='exp model', lw=1, alpha=0.7)
-# plt.plot(normalise_0_to_1(target_total[:-40]), label='total groundwater', lw=1, alpha=0.7)
-# plt.legend()
-# plt.title('Time series')
-# plt.show()
-# # cc = ccf(target_ts, other_ts)
-# # cc_lag = ccf(target_ts, other_ts_lag)
-
-# # plt.figure()
-# # plt.plot(target_ts, label=target_name)
-# # plt.plot(other_ts, label=other_name)
-# # plt.plot(other_ts_lag, label='lag')
-# # plt.plot(cc, label='cross-correlation')
-# # plt.plot(cc_lag, label='cross-correlation_lag')
-# # plt.legend()
-# # plt.show()
-
-
-# """
-# Add time lag?
-# Smoothing for deeper groundwater?
-# """
-
-# def find_tau_correlation(rain_ts, target_ts, tau_array=None):
-#     """Calculate convolution of rainfall data with an exponential window
-#     with time constant tau, for a range of values of tau.
-#     Then determine how correlated these convolved signals are to the
-#     target data by calculating Spearman's rank correlation coefficient
-#     for each value of tau"""
-#     if tau_array is None:
-#         tau_array = np.linspace(1, 100, 100)
-#     rain_ts = np.asarray(rain_ts)
-#     target_ts = np.asarray(target_ts)
-#     winlength = rain_ts.size
-#     target_len = target_ts.size
-#     t = np.linspace(0, winlength-1, winlength)
-#     src = np.empty(len(tau_array))
-#     for n in range(len(tau_array)):
-#         exp_win = np.exp(-t/tau_array[n])
-#         rain_conv = np.convolve(rain_ts, exp_win, 'full')[:target_len]
-#         rain_conv = rain_conv / np.sum(exp_win)
-#         # if n==40:
-#         #     plt.figure()
-#         #     plt.plot(rain_ts, label='rain_ts')
-#         #     plt.plot(rain_conv, label='rain_conv')
-#         #     plt.plot(target_ts, label='target_ts')
-#         #     plt.legend()
-#         #     plt.show()
-#         src[n], _ = stats.spearmanr(target_ts, rain_conv)
-#     return src, tau_array
-
-
-
-# # Calculate and plot correlation of convolved rainfall signal with the
-# # target signal for different time constants of exponential window
-# target_ind = 4
-# plt.figure()
-# for n in range(len(rain_name)):
-#     src, tau_array = find_tau_correlation(
-#                             normalise_0_to_1(rain_ts[n]),
-#                             normalise_0_to_1(all_target_ts[target_ind]),
-#                             tau_array=None)
-#     plt.plot(tau_array, src, label=rain_name[n])   
-# plt.xlabel("tau for exponential window")
-# plt.ylabel("Spearman's Rank Coefficient")
-# title_text = 'Correlation with target ' + all_target_name[target_ind] + \
-#              ' for different rainfall data'
-# plt.title(title_text)
-# plt.legend()
-# plt.show()
-
-
 
