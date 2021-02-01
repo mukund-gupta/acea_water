@@ -317,62 +317,102 @@ from sklearn.metrics import mean_squared_error
 
 # convert an array of values into a dataset matrix
 def create_dataset(dataset, look_back=1, chunk_step=1):
-    dataX, dataY, y_ind = [], [], []
-    numchunk = int(np.floor((len(dataset)-look_back-1) / chunk_step))
+    numchunk = int(np.floor((dataset.shape[1] - look_back - 1) / chunk_step))
+    dataX = np.empty((numchunk, look_back, dataset.shape[0]))
+    dataY, y_ind = [], []
+    # Create chunks of data with the specified look back
     for i in range(numchunk):
         start_ind = chunk_step*i
-        a = dataset[start_ind:(start_ind+look_back), :]
-        dataX.append(a)
-        dataY.append(dataset[start_ind + look_back, 0])
+        dataX[i, :, :] = dataset[:, start_ind:(start_ind + look_back)].T
+        dataY.append(dataset[0, start_ind + look_back])
         y_ind.append(start_ind + look_back)
+    # Randomise order of chunks
     rand_indices = np.random.permutation(numchunk)
     x = numpy.array(dataX)
     y = numpy.array(dataY)
     y_ind = numpy.array(y_ind)
-    x = x[rand_indices, :].transpose(0, 2, 1)
+    x = x[rand_indices, :]
     y = y[rand_indices]
     y = np.reshape(y, (y.size, 1))
     y_ind = y_ind[rand_indices]
     return x, y, y_ind
 
+# Rain preprocessing
+tau = 15
+exp_win = np.exp(-t/tau)
+exp_win = exp_win / np.sum(exp_win)
+rain_len = rain_ts[0].size
+rain_conv = []
+for n in range(len(rain_ts)):
+    conv = np.convolve(rain_ts[n], exp_win, 'full')[:rain_len]
+    rain_conv.append(conv)
+
+# Model parameters
+target_ind = 1
+look_back = 30
+chunk_step = 30
+train_ratio = 0.67
+num_epochs = 10
+batch_size = 5
+
 # fix random seed for reproducibility
 numpy.random.seed(7)
-# load the dataset
-dataset = all_target_ts[0]
-# normalize the dataset
-dataset = np.reshape(dataset, (dataset.size, 1))
-scaler = MinMaxScaler(feature_range=(0, 1))
-dataset_scaled = scaler.fit_transform(dataset)
 
-# Split into chunks with random order
-look_back = 30
-chunk_step = 100
-x, y, y_ind = create_dataset(dataset_scaled, look_back=look_back,
+# Remove zeros from target
+# N.B. SHOULD REPLACE THIS WITH A DIFFERENT METHOD
+for n in range(len(all_target_ts[target_ind])):
+    if n > 0 and all_target_ts[target_ind][n] == 0:
+        all_target_ts[target_ind][n] = all_target_ts[target_ind][n-1]
+        
+# normalize the datasets
+target_data = all_target_ts[target_ind]
+target_data = np.reshape(target_data, (target_data.size, 1))
+scaler = MinMaxScaler(feature_range=(0, 1))
+target_scaled = scaler.fit_transform(target_data)
+target_scaled = np.squeeze(target_scaled)
+rain_scaled = normalise_0_to_1(rain_conv[0])
+
+# Combine the dataset into single array
+dataset = np.stack((target_scaled, rain_scaled))
+
+# Plot presprocessed data
+plt.figure()
+plt.plot(dataset[0, :], label=all_target_name[target_ind])
+plt.plot(dataset[1, :], label=rain_name[0])
+plt.legend()
+plt.title('Preprocessed data')
+plt.show()
+
+# Split data into chunks with random order
+x, y, y_ind = create_dataset(dataset, look_back=look_back,
                              chunk_step=chunk_step)
 numchunk = y.shape[0]
 
 # split into train and test sets
-train_size = int(numchunk * 0.67)
+train_size = int(numchunk * train_ratio)
 test_size = numchunk - train_size
-trainX, testX = x[0:train_size,:], x[train_size:numchunk,:]
-trainY, testY = y[0:train_size,:], y[train_size:numchunk,:]
+trainX, testX = x[0:train_size, :, :], x[train_size:numchunk, :, :]
+trainY, testY = y[0:train_size, :], y[train_size:numchunk, :]
 trainYind, testYind = y_ind[0:train_size], y_ind[train_size:numchunk]
 
 # Plot one example of chunk
 sample_num = 10
 plt.figure()
-plt.plot(np.arange(look_back), trainX[sample_num, 0, :])
-plt.plot([look_back], trainY[sample_num, 0], 'xr')
+time_ = np.arange(look_back)
+plt.plot(time_, trainX[sample_num, :, 0], label='Input: target')
+plt.plot(time_, trainX[sample_num, :, 1], label='Input: rain')
+plt.plot([look_back], trainY[sample_num, 0], 'xr', label='Output: target')
+plt.legend()
 plt.title("Example of one chunk from dataset")
 plt.show()
 
 # create and fit the LSTM network
-num_features = 1
+num_features = x.shape[2]
 model = Sequential()
-model.add(LSTM(4, input_shape=(num_features, look_back)))
+model.add(LSTM(4, input_shape=(look_back, num_features)))
 model.add(Dense(1))
 model.compile(loss='mean_squared_error', optimizer='adam')
-model.fit(trainX, trainY, epochs=10, batch_size=5, verbose=1)
+model.fit(trainX, trainY, epochs=num_epochs, batch_size=batch_size, verbose=1)
 
 # make predictions
 trainPredict = model.predict(trainX)
@@ -396,33 +436,19 @@ pred_ind = testYind[pred_sample]
 plt.figure()
 sample_t = np.linspace(pred_ind - look_back - 1, pred_ind - 1, look_back)
 sample_t = sample_t.astype(np.int)
-plt.plot(sample_t, dataset[sample_t[0]:sample_t[-1], 0])
+plt.plot(sample_t, target_data[sample_t[0]:sample_t[-1]])
 plt.plot(pred_ind, testPredict[pred_sample, 0], 'xr')
 plt.title("Example of one prediction from test data")
 plt.show()
 
 # Plot all predictions from test samples against original data
 plt.figure()
-plt.plot(np.linspace(0, dataset.size-1, dataset.size), dataset, label='dataset')
+plt.plot(np.linspace(0, target_data.size-1, target_data.size), target_data,
+         label='Original data')
 plt.plot(testYind, testPredict[:, 0], 'xr', label='Test predictions')
 plt.plot(trainYind, trainPredict[:, 0], 'xg', label='Train predictions')
 plt.legend()
 plt.title("Predictions compared to original dataset")
 plt.show()
-
-# # shift train predictions for plotting
-# trainPredictPlot = numpy.empty_like(dataset)
-# trainPredictPlot[:, :] = numpy.nan
-# trainPredictPlot[look_back:len(trainPredict)+look_back, :] = trainPredict
-# # shift test predictions for plotting
-# testPredictPlot = numpy.empty_like(dataset)
-# testPredictPlot[:, :] = numpy.nan
-# testPredictPlot[len(trainPredict)+(look_back*2)+1:len(dataset)-1, :] = testPredict
-# # plot baseline and predictions
-# plt.plot(scaler.inverse_transform(dataset))
-# plt.plot(trainPredictPlot)
-# plt.plot(testPredictPlot)
-# plt.show()
-
 
 
