@@ -13,6 +13,7 @@ from statsmodels.tsa.stattools import ccf
 from scipy import stats
 plt.rcParams.update(plt.rcParamsDefault)
 plt.style.use('seaborn-muted')
+plt.rcParams['font.family'] = 'Arial'
 
 
 # Get all csv files from data
@@ -55,6 +56,7 @@ def spearman_lag(data1, data2, lag):
     if lag > 0:
         data2_lag = np.zeros(data_length)
         data2_lag[lag:] = data2[:-lag] 
+        data2_lag[:lag] = data2[0]
     else:
         data2_lag = data2
     src, _ = stats.spearmanr(data1, data2_lag)
@@ -260,7 +262,7 @@ Add time lag?
 Smoothing for deeper groundwater?
 """
 
-def find_tau_correlation(rain_ts, target_ts, tau_array=None):
+def find_tau_correlation(target_ts, rain_ts, tau_array=None):
     """Calculate convolution of rainfall data with an exponential window
     with time constant tau, for a range of values of tau.
     Then determine how correlated these convolved signals are to the
@@ -300,8 +302,8 @@ def find_best_tau(target_ts, rain_ts, plot=True, rain_name=None, tau_array=None)
     if plot: plt.figure()
     for n in range(len(rain_ts)):
         src, tau_array = find_tau_correlation(
-                                normalise_0_to_1(rain_ts[n]),
                                 normalise_0_to_1(target_ts),
+                                normalise_0_to_1(rain_ts[n]),
                                 tau_array=tau_array)
         tau_best.append(tau_array[np.argmax(src)])
         if plot: plt.plot(tau_array, src, label=rain_name[n])   
@@ -313,6 +315,49 @@ def find_best_tau(target_ts, rain_ts, plot=True, rain_name=None, tau_array=None)
         plt.legend()
         plt.show()
     return tau_best
+
+
+def tau_and_lag_correl(target_ts, rain_ts, lag_array=None, tau_array=None,
+                       plot=True):
+    """
+    Calculate correlation coefficients for different time lag and tau
+    values for rainfall. Optional plot.
+    """
+    if lag_array is None:
+        lag_array = np.arange(20)
+    if tau_array is None:
+        tau_array = np.linspace(22, 90, 35).astype(np.int)
+    sp_rank_cc = []
+    for n in range(len(lag_array)):
+        lag = lag_array[n]
+        data_length = rain_ts.size
+        if lag > 0:
+            data_lag = np.zeros(data_length)
+            data_lag[lag:] = rain_ts[:-lag]
+            data_lag[:lag] = rain_ts[0]
+        else:
+            data_lag = rain_ts
+        src, _ = find_tau_correlation(target_ts, data_lag,
+                                      tau_array=tau_array)
+        sp_rank_cc.append(src)
+    sp_rank_cc = np.asarray(sp_rank_cc)
+    if plot:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        cax = ax.matshow(sp_rank_cc)
+        fig.colorbar(cax)
+        ax.set_xticks(np.arange(len(tau_array)))
+        ax.set_yticks(np.arange(len(lag_array)))
+        ax.set_xticklabels(tau_array)
+        ax.set_yticklabels(lag_array)
+        ax.xaxis.set_ticks_position('bottom')
+        plt.setp(ax.get_xticklabels(), rotation=90, ha="right",
+                 rotation_mode="anchor")
+        ax.set_xlabel('Tau for exponential window')
+        ax.set_ylabel('Time lag [days]')
+        plt.title('Correlation of rainfall with target for different values of tau and time lag')
+        fig.show()
+    return sp_rank_cc, lag_array, tau_array
 
 
 # Analysis of how lag applied to rainfall affects correlation with target
@@ -354,11 +399,27 @@ ax.set_xticks(np.arange(len(rain_name)))
 ax.set_yticks(np.arange(len(all_target_name[1:])))
 ax.set_xticklabels(rain_name)
 ax.set_yticklabels(all_target_name[1:])
-plt.setp(ax.get_xticklabels(), rotation=70, ha="left",
+ax.xaxis.set_ticks_position('bottom')
+plt.setp(ax.get_xticklabels(), rotation=70, ha="right",
          rotation_mode="anchor")
 plt.title('Optimum Tau value for exponential window')
 fig.tight_layout()
 fig.show()
+    
+
+target_test_ind = 0
+rain_test_ind = 0
+# lag_array = np.arange(30)
+# tau_array = np.linspace(12, 90, 40).astype(np.int)
+lag_array = np.linspace(0, 60, 31).astype(np.int)
+tau_array = np.linspace(40, 2000, 50).astype(np.int)
+data1 = all_target_ts[target_test_ind]
+data2 = rain_ts[rain_test_ind]
+sp_rank_cc, lag_array, tau_array = tau_and_lag_correl(data1,
+                                                      data2,
+                                                      lag_array=lag_array,
+                                                      tau_array=tau_array,
+                                                      plot=True)
 
 
 # LSTM
