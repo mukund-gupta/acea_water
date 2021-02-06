@@ -11,6 +11,8 @@ from matplotlib import pyplot as plt
 from pathlib import Path
 from statsmodels.tsa.stattools import ccf
 from scipy import stats
+plt.rcParams.update(plt.rcParamsDefault)
+plt.style.use('seaborn-muted')
 
 
 # Get all csv files from data
@@ -264,7 +266,7 @@ def find_tau_correlation(rain_ts, target_ts, tau_array=None):
     target data by calculating Spearman's rank correlation coefficient
     for each value of tau"""
     if tau_array is None:
-        tau_array = np.linspace(1, 100, 100)
+        tau_array = np.linspace(2, 120, 60)
     rain_ts = np.asarray(rain_ts)
     target_ts = np.asarray(target_ts)
     winlength = rain_ts.size
@@ -286,24 +288,59 @@ def find_tau_correlation(rain_ts, target_ts, tau_array=None):
     return src, tau_array
 
 
+def find_best_tau(target_ts, rain_ts, plot=True, rain_name=None, tau_array=None):
+    """
+    Calculate correlation of convolved rainfall signal with the
+    target signal for different time constants of exponential window
+    and select the tau value that gives the best correlation.
+    Optional plot of correlation for different tau values
+    """
+    tau_best = []
+    if plot: plt.figure()
+    for n in range(len(rain_ts)):
+        src, tau_array = find_tau_correlation(
+                                normalise_0_to_1(rain_ts[n]),
+                                normalise_0_to_1(target_ts),
+                                tau_array=tau_array)
+        tau_best.append(tau_array[np.argmax(src)])
+        if plot: plt.plot(tau_array, src, label=rain_name[n])   
+    if plot:
+        plt.xlabel("tau for exponential window")
+        plt.ylabel("Spearman's Rank Coefficient")
+        title_text = 'Correlation with target for different rainfall data'
+        plt.title(title_text)
+        plt.legend()
+        plt.show()
+    return tau_best
 
-# # Calculate and plot correlation of convolved rainfall signal with the
-# # target signal for different time constants of exponential window
-# target_ind = 4
-# plt.figure()
-# for n in range(len(rain_name)):
-#     src, tau_array = find_tau_correlation(
-#                             normalise_0_to_1(rain_ts[n]),
-#                             normalise_0_to_1(all_target_ts[target_ind]),
-#                             tau_array=None)
-#     plt.plot(tau_array, src, label=rain_name[n])   
-# plt.xlabel("tau for exponential window")
-# plt.ylabel("Spearman's Rank Coefficient")
-# title_text = 'Correlation with target ' + all_target_name[target_ind] + \
-#              ' for different rainfall data'
-# plt.title(title_text)
-# plt.legend()
-# plt.show()
+
+all_tau_best = []
+for n in range(len(all_target_ts)):
+    if n == 0:
+        tau_array = np.linspace(205, 450, 50)
+    else:
+        tau_array = None
+    tau_best = find_best_tau(all_target_ts[n], rain_ts, plot=False,
+                             tau_array=tau_array)
+    all_tau_best.append(tau_best)
+all_tau_best = np.asarray(all_tau_best)
+fig = plt.figure()
+ax = fig.add_subplot(111)
+cax = ax.matshow(all_tau_best[1:, :])
+for i in range(len(all_target_name[1:])):
+    for j in range(len(rain_name)):
+        text = ax.text(j, i, np.int(all_tau_best[i+1, j]),
+                       ha="center", va="center", color="w")
+fig.colorbar(cax)
+ax.set_xticks(np.arange(len(rain_name)))
+ax.set_yticks(np.arange(len(all_target_name[1:])))
+ax.set_xticklabels(rain_name)
+ax.set_yticklabels(all_target_name[1:])
+plt.setp(ax.get_xticklabels(), rotation=70, ha="left",
+         rotation_mode="anchor")
+plt.title('Optimum Tau value for exponential window')
+fig.tight_layout()
+fig.show()
 
 
 # LSTM
@@ -337,8 +374,18 @@ def create_dataset(dataset, look_back=1, chunk_step=1):
     y_ind = y_ind[rand_indices]
     return x, y, y_ind
 
+# Model parameters
+target_ind = 1
+look_back = 30
+chunk_step = 50
+train_ratio = 0.67
+num_epochs = 30
+batch_size = 5
+
 # Rain preprocessing
-tau = 15
+tau_best = find_best_tau(all_target_ts[target_ind], rain_ts, plot=True,
+                         rain_name=rain_name)
+tau = tau_best[0]
 exp_win = np.exp(-t/tau)
 exp_win = exp_win / np.sum(exp_win)
 rain_len = rain_ts[0].size
@@ -346,14 +393,6 @@ rain_conv = []
 for n in range(len(rain_ts)):
     conv = np.convolve(rain_ts[n], exp_win, 'full')[:rain_len]
     rain_conv.append(conv)
-
-# Model parameters
-target_ind = 1
-look_back = 30
-chunk_step = 30
-train_ratio = 0.67
-num_epochs = 10
-batch_size = 5
 
 # fix random seed for reproducibility
 numpy.random.seed(7)
@@ -363,14 +402,21 @@ numpy.random.seed(7)
 for n in range(len(all_target_ts[target_ind])):
     if n > 0 and all_target_ts[target_ind][n] == 0:
         all_target_ts[target_ind][n] = all_target_ts[target_ind][n-1]
-        
+
+# Calculate differential of target & rainfall
+target_diff = np.diff(all_target_ts[target_ind])
+rain_conv_diff = []
+for n in range(len(rain_ts)):
+    rain_conv_diff.append(np.diff(rain_conv[n]))
+
 # normalize the datasets
-target_data = all_target_ts[target_ind]
+target_data = target_diff
+all_target_ts[target_ind] = all_target_ts[target_ind][1:]
 target_data = np.reshape(target_data, (target_data.size, 1))
-scaler = MinMaxScaler(feature_range=(0, 1))
+scaler = MinMaxScaler(feature_range=(-1, 1))
 target_scaled = scaler.fit_transform(target_data)
 target_scaled = np.squeeze(target_scaled)
-rain_scaled = normalise_0_to_1(rain_conv[0])
+rain_scaled = normalise_0_to_1(rain_conv_diff[0])
 
 # Combine the dataset into single array
 dataset = np.stack((target_scaled, rain_scaled))
@@ -424,6 +470,16 @@ trainY = scaler.inverse_transform(trainY)
 testPredict = scaler.inverse_transform(testPredict)
 testY = scaler.inverse_transform(testY)
 
+# Convert from diff to actual prediction
+for n in range(train_size):
+    prev_day = all_target_ts[target_ind][trainYind[n] - 1]
+    trainY[n] = prev_day + trainY[n]
+    trainPredict[n] = prev_day + trainPredict[n]
+for n in range(test_size):
+    prev_day = all_target_ts[target_ind][testYind[n] - 1]
+    testY[n] = prev_day + testY[n]
+    testPredict[n] = prev_day + testPredict[n]
+
 # calculate root mean squared error
 trainScore = math.sqrt(mean_squared_error(trainY[:, 0], trainPredict[:,0]))
 print('Train Score: %.2f RMSE' % (trainScore))
@@ -436,14 +492,16 @@ pred_ind = testYind[pred_sample]
 plt.figure()
 sample_t = np.linspace(pred_ind - look_back - 1, pred_ind - 1, look_back)
 sample_t = sample_t.astype(np.int)
-plt.plot(sample_t, target_data[sample_t[0]:sample_t[-1]])
+plt.plot(sample_t, all_target_ts[target_ind][sample_t[0]:sample_t[-1]])
 plt.plot(pred_ind, testPredict[pred_sample, 0], 'xr')
 plt.title("Example of one prediction from test data")
 plt.show()
 
 # Plot all predictions from test samples against original data
 plt.figure()
-plt.plot(np.linspace(0, target_data.size-1, target_data.size), target_data,
+plt.plot(np.linspace(0, all_target_ts[target_ind].size-1,
+                     all_target_ts[target_ind].size),
+         all_target_ts[target_ind],
          label='Original data')
 plt.plot(testYind, testPredict[:, 0], 'xr', label='Test predictions')
 plt.plot(trainYind, trainPredict[:, 0], 'xg', label='Train predictions')
