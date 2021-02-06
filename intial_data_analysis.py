@@ -11,6 +11,9 @@ from matplotlib import pyplot as plt
 from pathlib import Path
 from statsmodels.tsa.stattools import ccf
 from scipy import stats
+plt.rcParams.update(plt.rcParamsDefault)
+plt.style.use('seaborn-muted')
+plt.rcParams['font.family'] = 'Arial'
 
 
 # Get all csv files from data
@@ -53,20 +56,22 @@ def spearman_lag(data1, data2, lag):
     if lag > 0:
         data2_lag = np.zeros(data_length)
         data2_lag[lag:] = data2[:-lag] 
+        data2_lag[:lag] = data2[0]
     else:
         data2_lag = data2
     src, _ = stats.spearmanr(data1, data2_lag)
     return src
 
 
-def cross_corr_lag(data1, data2):
+def cross_corr_lag(data1, data2, lag_array=None):
     """Calculate Spearman's rank correlation coefficient between 2 datasets,
     for a range of different lags applied to data2"""
-    data_length = data1.size
-    crosscorr_lag = np.empty(data_length - 1)
-    for n in range(data_length - 1):
-        crosscorr_lag[n] = spearman_lag(data1, data2, lag=n)
-    return crosscorr_lag
+    if lag_array is None:
+        lag_array = np.arange(data1.size)
+    crosscorr_lag = np.empty(len(lag_array))
+    for n in range(len(lag_array)):
+        crosscorr_lag[n] = spearman_lag(data1, data2, lag=lag_array[n])
+    return crosscorr_lag, lag_array
 
 
 def moving_average(x, w):
@@ -257,14 +262,14 @@ Add time lag?
 Smoothing for deeper groundwater?
 """
 
-def find_tau_correlation(rain_ts, target_ts, tau_array=None):
+def find_tau_correlation(target_ts, rain_ts, tau_array=None):
     """Calculate convolution of rainfall data with an exponential window
     with time constant tau, for a range of values of tau.
     Then determine how correlated these convolved signals are to the
     target data by calculating Spearman's rank correlation coefficient
     for each value of tau"""
     if tau_array is None:
-        tau_array = np.linspace(1, 100, 100)
+        tau_array = np.linspace(2, 120, 60)
     rain_ts = np.asarray(rain_ts)
     target_ts = np.asarray(target_ts)
     winlength = rain_ts.size
@@ -286,24 +291,135 @@ def find_tau_correlation(rain_ts, target_ts, tau_array=None):
     return src, tau_array
 
 
+def find_best_tau(target_ts, rain_ts, plot=True, rain_name=None, tau_array=None):
+    """
+    Calculate correlation of convolved rainfall signal with the
+    target signal for different time constants of exponential window
+    and select the tau value that gives the best correlation.
+    Optional plot of correlation for different tau values
+    """
+    tau_best = []
+    if plot: plt.figure()
+    for n in range(len(rain_ts)):
+        src, tau_array = find_tau_correlation(
+                                normalise_0_to_1(target_ts),
+                                normalise_0_to_1(rain_ts[n]),
+                                tau_array=tau_array)
+        tau_best.append(tau_array[np.argmax(src)])
+        if plot: plt.plot(tau_array, src, label=rain_name[n])   
+    if plot:
+        plt.xlabel("tau for exponential window")
+        plt.ylabel("Spearman's Rank Coefficient")
+        title_text = 'Correlation with target for different rainfall data'
+        plt.title(title_text)
+        plt.legend()
+        plt.show()
+    return tau_best
 
-# # Calculate and plot correlation of convolved rainfall signal with the
-# # target signal for different time constants of exponential window
-# target_ind = 4
-# plt.figure()
-# for n in range(len(rain_name)):
-#     src, tau_array = find_tau_correlation(
-#                             normalise_0_to_1(rain_ts[n]),
-#                             normalise_0_to_1(all_target_ts[target_ind]),
-#                             tau_array=None)
-#     plt.plot(tau_array, src, label=rain_name[n])   
-# plt.xlabel("tau for exponential window")
-# plt.ylabel("Spearman's Rank Coefficient")
-# title_text = 'Correlation with target ' + all_target_name[target_ind] + \
-#              ' for different rainfall data'
-# plt.title(title_text)
-# plt.legend()
-# plt.show()
+
+def tau_and_lag_correl(target_ts, rain_ts, lag_array=None, tau_array=None,
+                       plot=True):
+    """
+    Calculate correlation coefficients for different time lag and tau
+    values for rainfall. Optional plot.
+    """
+    if lag_array is None:
+        lag_array = np.arange(20)
+    if tau_array is None:
+        tau_array = np.linspace(22, 90, 35).astype(np.int)
+    sp_rank_cc = []
+    for n in range(len(lag_array)):
+        lag = lag_array[n]
+        data_length = rain_ts.size
+        if lag > 0:
+            data_lag = np.zeros(data_length)
+            data_lag[lag:] = rain_ts[:-lag]
+            data_lag[:lag] = rain_ts[0]
+        else:
+            data_lag = rain_ts
+        src, _ = find_tau_correlation(target_ts, data_lag,
+                                      tau_array=tau_array)
+        sp_rank_cc.append(src)
+    sp_rank_cc = np.asarray(sp_rank_cc)
+    if plot:
+        fig = plt.figure()
+        ax = fig.add_subplot(111)
+        cax = ax.matshow(sp_rank_cc)
+        fig.colorbar(cax)
+        ax.set_xticks(np.arange(len(tau_array)))
+        ax.set_yticks(np.arange(len(lag_array)))
+        ax.set_xticklabels(tau_array)
+        ax.set_yticklabels(lag_array)
+        ax.xaxis.set_ticks_position('bottom')
+        plt.setp(ax.get_xticklabels(), rotation=90, ha="right",
+                 rotation_mode="anchor")
+        ax.set_xlabel('Tau for exponential window')
+        ax.set_ylabel('Time lag [days]')
+        plt.title('Correlation of rainfall with target for different values of tau and time lag')
+        fig.show()
+    return sp_rank_cc, lag_array, tau_array
+
+
+# Analysis of how lag applied to rainfall affects correlation with target
+lag_array = np.arange(200)
+plt.figure()
+for n in range(len(rain_ts)):
+    crosscorr_lag, lag_array = cross_corr_lag(
+                                    normalise_0_to_1(all_target_ts[2]),
+                                    normalise_0_to_1(rain_ts[n]),
+                                    lag_array=lag_array)
+    plt.plot(lag_array, crosscorr_lag, label=rain_name[n])
+plt.legend()
+plt.xlabel('Lag applied to rainfall data [days]')
+plt.ylabel('Spearman''s rank correlation coefficient')
+plt.title('Correlation of rainfall with target for different lag amounts')
+plt.show()
+
+# Calculating optimum tau for each rainfall/target combination that
+# maximises the Spearman's Rank correlation coefficient
+all_tau_best = []
+for n in range(len(all_target_ts)):
+    if n == 0:
+        tau_array = np.linspace(205, 450, 50)
+    else:
+        tau_array = None
+    tau_best = find_best_tau(all_target_ts[n], rain_ts, plot=False,
+                             tau_array=tau_array)
+    all_tau_best.append(tau_best)
+all_tau_best = np.asarray(all_tau_best)
+fig = plt.figure()
+ax = fig.add_subplot(111)
+cax = ax.matshow(all_tau_best[1:, :])
+for i in range(len(all_target_name[1:])):
+    for j in range(len(rain_name)):
+        text = ax.text(j, i, np.int(all_tau_best[i+1, j]),
+                       ha="center", va="center", color="w")
+fig.colorbar(cax)
+ax.set_xticks(np.arange(len(rain_name)))
+ax.set_yticks(np.arange(len(all_target_name[1:])))
+ax.set_xticklabels(rain_name)
+ax.set_yticklabels(all_target_name[1:])
+ax.xaxis.set_ticks_position('bottom')
+plt.setp(ax.get_xticklabels(), rotation=70, ha="right",
+         rotation_mode="anchor")
+plt.title('Optimum Tau value for exponential window')
+fig.tight_layout()
+fig.show()
+    
+
+target_test_ind = 0
+rain_test_ind = 0
+# lag_array = np.arange(30)
+# tau_array = np.linspace(12, 90, 40).astype(np.int)
+lag_array = np.linspace(0, 60, 31).astype(np.int)
+tau_array = np.linspace(40, 2000, 50).astype(np.int)
+data1 = all_target_ts[target_test_ind]
+data2 = rain_ts[rain_test_ind]
+sp_rank_cc, lag_array, tau_array = tau_and_lag_correl(data1,
+                                                      data2,
+                                                      lag_array=lag_array,
+                                                      tau_array=tau_array,
+                                                      plot=True)
 
 
 # LSTM
@@ -337,8 +453,18 @@ def create_dataset(dataset, look_back=1, chunk_step=1):
     y_ind = y_ind[rand_indices]
     return x, y, y_ind
 
+# Model parameters
+target_ind = 1
+look_back = 30
+chunk_step = 50
+train_ratio = 0.67
+num_epochs = 30
+batch_size = 5
+
 # Rain preprocessing
-tau = 15
+tau_best = find_best_tau(all_target_ts[target_ind], rain_ts, plot=True,
+                         rain_name=rain_name)
+tau = tau_best[0]
 exp_win = np.exp(-t/tau)
 exp_win = exp_win / np.sum(exp_win)
 rain_len = rain_ts[0].size
@@ -346,14 +472,6 @@ rain_conv = []
 for n in range(len(rain_ts)):
     conv = np.convolve(rain_ts[n], exp_win, 'full')[:rain_len]
     rain_conv.append(conv)
-
-# Model parameters
-target_ind = 1
-look_back = 30
-chunk_step = 30
-train_ratio = 0.67
-num_epochs = 10
-batch_size = 5
 
 # fix random seed for reproducibility
 numpy.random.seed(7)
@@ -363,14 +481,21 @@ numpy.random.seed(7)
 for n in range(len(all_target_ts[target_ind])):
     if n > 0 and all_target_ts[target_ind][n] == 0:
         all_target_ts[target_ind][n] = all_target_ts[target_ind][n-1]
-        
+
+# Calculate differential of target & rainfall
+target_diff = np.diff(all_target_ts[target_ind])
+rain_conv_diff = []
+for n in range(len(rain_ts)):
+    rain_conv_diff.append(np.diff(rain_conv[n]))
+
 # normalize the datasets
-target_data = all_target_ts[target_ind]
+target_data = target_diff
+all_target_ts[target_ind] = all_target_ts[target_ind][1:]
 target_data = np.reshape(target_data, (target_data.size, 1))
-scaler = MinMaxScaler(feature_range=(0, 1))
+scaler = MinMaxScaler(feature_range=(-1, 1))
 target_scaled = scaler.fit_transform(target_data)
 target_scaled = np.squeeze(target_scaled)
-rain_scaled = normalise_0_to_1(rain_conv[0])
+rain_scaled = normalise_0_to_1(rain_conv_diff[0])
 
 # Combine the dataset into single array
 dataset = np.stack((target_scaled, rain_scaled))
@@ -424,6 +549,16 @@ trainY = scaler.inverse_transform(trainY)
 testPredict = scaler.inverse_transform(testPredict)
 testY = scaler.inverse_transform(testY)
 
+# Convert from diff to actual prediction
+for n in range(train_size):
+    prev_day = all_target_ts[target_ind][trainYind[n] - 1]
+    trainY[n] = prev_day + trainY[n]
+    trainPredict[n] = prev_day + trainPredict[n]
+for n in range(test_size):
+    prev_day = all_target_ts[target_ind][testYind[n] - 1]
+    testY[n] = prev_day + testY[n]
+    testPredict[n] = prev_day + testPredict[n]
+
 # calculate root mean squared error
 trainScore = math.sqrt(mean_squared_error(trainY[:, 0], trainPredict[:,0]))
 print('Train Score: %.2f RMSE' % (trainScore))
@@ -436,14 +571,16 @@ pred_ind = testYind[pred_sample]
 plt.figure()
 sample_t = np.linspace(pred_ind - look_back - 1, pred_ind - 1, look_back)
 sample_t = sample_t.astype(np.int)
-plt.plot(sample_t, target_data[sample_t[0]:sample_t[-1]])
+plt.plot(sample_t, all_target_ts[target_ind][sample_t[0]:sample_t[-1]])
 plt.plot(pred_ind, testPredict[pred_sample, 0], 'xr')
 plt.title("Example of one prediction from test data")
 plt.show()
 
 # Plot all predictions from test samples against original data
 plt.figure()
-plt.plot(np.linspace(0, target_data.size-1, target_data.size), target_data,
+plt.plot(np.linspace(0, all_target_ts[target_ind].size-1,
+                     all_target_ts[target_ind].size),
+         all_target_ts[target_ind],
          label='Original data')
 plt.plot(testYind, testPredict[:, 0], 'xr', label='Test predictions')
 plt.plot(trainYind, trainPredict[:, 0], 'xg', label='Train predictions')
