@@ -316,15 +316,17 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.metrics import mean_squared_error
 
 # convert an array of values into a dataset matrix
-def create_dataset(dataset, look_back=1, chunk_step=1):
+def create_dataset(dataset, look_back=1, chunk_step=1, predict_steps=1):
     numchunk = int(np.floor((dataset.shape[1] - look_back - 1) / chunk_step))
     dataX = np.empty((numchunk, look_back, dataset.shape[0]))
-    dataY, y_ind = [], []
+    dataY = np.empty((numchunk, predict_steps))
+    y_ind = []
     # Create chunks of data with the specified look back
     for i in range(numchunk):
         start_ind = chunk_step*i
         dataX[i, :, :] = dataset[:, start_ind:(start_ind + look_back)].T
-        dataY.append(dataset[0, start_ind + look_back])
+        dataY[i, :] = dataset[0,start_ind+look_back:start_ind+look_back+predict_steps] #MG
+        #dataY.append(dataset[0, start_ind + look_back])
         y_ind.append(start_ind + look_back)
     # Randomise order of chunks
     rand_indices = np.random.permutation(numchunk)
@@ -332,8 +334,8 @@ def create_dataset(dataset, look_back=1, chunk_step=1):
     y = numpy.array(dataY)
     y_ind = numpy.array(y_ind)
     x = x[rand_indices, :]
-    y = y[rand_indices]
-    y = np.reshape(y, (y.size, 1))
+    y = y[rand_indices,:]
+    #y = np.reshape(y, (y.size, 1)) # MG
     y_ind = y_ind[rand_indices]
     return x, y, y_ind
 
@@ -352,8 +354,9 @@ target_ind = 1
 look_back = 30
 chunk_step = 30
 train_ratio = 0.67
-num_epochs = 10
+num_epochs = 100
 batch_size = 5
+predict_steps = 1
 
 # fix random seed for reproducibility
 numpy.random.seed(7)
@@ -383,9 +386,11 @@ plt.legend()
 plt.title('Preprocessed data')
 plt.show()
 
+#%% Data pre-processing for LSTM
+
 # Split data into chunks with random order
 x, y, y_ind = create_dataset(dataset, look_back=look_back,
-                             chunk_step=chunk_step)
+                             chunk_step=chunk_step, predict_steps=predict_steps)
 numchunk = y.shape[0]
 
 # split into train and test sets
@@ -395,22 +400,22 @@ trainX, testX = x[0:train_size, :, :], x[train_size:numchunk, :, :]
 trainY, testY = y[0:train_size, :], y[train_size:numchunk, :]
 trainYind, testYind = y_ind[0:train_size], y_ind[train_size:numchunk]
 
-# Plot one example of chunk
-sample_num = 10
-plt.figure()
-time_ = np.arange(look_back)
-plt.plot(time_, trainX[sample_num, :, 0], label='Input: target')
-plt.plot(time_, trainX[sample_num, :, 1], label='Input: rain')
-plt.plot([look_back], trainY[sample_num, 0], 'xr', label='Output: target')
-plt.legend()
-plt.title("Example of one chunk from dataset")
-plt.show()
+## Plot one example of chunk
+#sample_num = 10
+#plt.figure()
+#time_ = np.arange(look_back)
+#plt.plot(time_, trainX[sample_num, :, 0], label='Input: target')
+#plt.plot(time_, trainX[sample_num, :, 1], label='Input: rain')
+#plt.plot([look_back], trainY[sample_num, 0], 'xr', label='Output: target')
+#plt.legend()
+#plt.title("Example of one chunk from dataset")
+#plt.show()
 
-# create and fit the LSTM network
+#%% Create and fit the LSTM network
 num_features = x.shape[2]
 model = Sequential()
 model.add(LSTM(4, input_shape=(look_back, num_features)))
-model.add(Dense(1))
+model.add(Dense(predict_steps)) # MG
 model.compile(loss='mean_squared_error', optimizer='adam')
 model.fit(trainX, trainY, epochs=num_epochs, batch_size=batch_size, verbose=1)
 
@@ -424,29 +429,45 @@ trainY = scaler.inverse_transform(trainY)
 testPredict = scaler.inverse_transform(testPredict)
 testY = scaler.inverse_transform(testY)
 
-# calculate root mean squared error
-trainScore = math.sqrt(mean_squared_error(trainY[:, 0], trainPredict[:,0]))
-print('Train Score: %.2f RMSE' % (trainScore))
-testScore = math.sqrt(mean_squared_error(testY[:, 0], testPredict[:,0]))
-print('Test Score: %.2f RMSE' % (testScore))
+
+## calculate root mean squared error
+#trainScore = math.sqrt(mean_squared_error(trainY[:, 0], trainPredict[:,0]))
+#print('Train Score: %.2f RMSE' % (trainScore))
+#testScore = math.sqrt(mean_squared_error(testY[:, 0], testPredict[:,0]))
+#print('Test Score: %.2f RMSE' % (testScore))
+
+#%% Plotting sample
 
 # Plot one prediction example from test sample
-pred_sample = 4
+pred_sample = 20
 pred_ind = testYind[pred_sample]
 plt.figure()
 sample_t = np.linspace(pred_ind - look_back - 1, pred_ind - 1, look_back)
 sample_t = sample_t.astype(np.int)
 plt.plot(sample_t, target_data[sample_t[0]:sample_t[-1]])
-plt.plot(pred_ind, testPredict[pred_sample, 0], 'xr')
+plt.plot(np.arange(pred_ind,pred_ind+predict_steps), testPredict[pred_sample,:])
+plt.plot(np.arange(pred_ind,pred_ind+predict_steps), target_data[sample_t[-1]:sample_t[-1]+predict_steps])
 plt.title("Example of one prediction from test data")
 plt.show()
 
-# Plot all predictions from test samples against original data
+#%% Plot all predictions from test samples against original data
+
 plt.figure()
 plt.plot(np.linspace(0, target_data.size-1, target_data.size), target_data,
          label='Original data')
 plt.plot(testYind, testPredict[:, 0], 'xr', label='Test predictions')
 plt.plot(trainYind, trainPredict[:, 0], 'xg', label='Train predictions')
+plt.legend()
+plt.title("Predictions compared to original dataset")
+plt.show()
+
+#%% Plot all predictions from test samples against original data
+
+plt.figure()
+plt.plot(np.linspace(0, target_data.size-1, target_data.size), target_data,
+         label='Original data')
+for ii in range(len(testYind)):
+    plt.plot(np.arange(testYind[ii],testYind[ii] + predict_steps), testPredict[ii, :],color='k')
 plt.legend()
 plt.title("Predictions compared to original dataset")
 plt.show()
