@@ -61,14 +61,15 @@ def spearman_lag(data1, data2, lag):
     return src
 
 
-def cross_corr_lag(data1, data2):
+def cross_corr_lag(data1, data2, lag_array=None):
     """Calculate Spearman's rank correlation coefficient between 2 datasets,
     for a range of different lags applied to data2"""
-    data_length = data1.size
-    crosscorr_lag = np.empty(data_length - 1)
-    for n in range(data_length - 1):
-        crosscorr_lag[n] = spearman_lag(data1, data2, lag=n)
-    return crosscorr_lag
+    if lag_array is None:
+        lag_array = np.arange(data1.size)
+    crosscorr_lag = np.empty(len(lag_array))
+    for n in range(len(lag_array)):
+        crosscorr_lag[n] = spearman_lag(data1, data2, lag=lag_array[n])
+    return crosscorr_lag, lag_array
 
 
 def moving_average(x, w):
@@ -314,6 +315,23 @@ def find_best_tau(target_ts, rain_ts, plot=True, rain_name=None, tau_array=None)
     return tau_best
 
 
+# Analysis of how lag applied to rainfall affects correlation with target
+lag_array = np.arange(200)
+plt.figure()
+for n in range(len(rain_ts)):
+    crosscorr_lag, lag_array = cross_corr_lag(
+                                    normalise_0_to_1(all_target_ts[2]),
+                                    normalise_0_to_1(rain_ts[n]),
+                                    lag_array=lag_array)
+    plt.plot(lag_array, crosscorr_lag, label=rain_name[n])
+plt.legend()
+plt.xlabel('Lag applied to rainfall data [days]')
+plt.ylabel('Spearman''s rank correlation coefficient')
+plt.title('Correlation of rainfall with target for different lag amounts')
+plt.show()
+
+# Calculating optimum tau for each rainfall/target combination that
+# maximises the Spearman's Rank correlation coefficient
 all_tau_best = []
 for n in range(len(all_target_ts)):
     if n == 0:
